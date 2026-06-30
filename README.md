@@ -4,7 +4,7 @@ ELC Invoice Engine V2 接口命令行工具。基于 Python + Typer 构建，支
 
 ## 前置要求
 
-- Python 3.10+（推荐通过 [Homebrew](https://brew.sh) 安装：`brew install python@3.10`）
+- Python 3.9+（推荐通过 [Homebrew](https://brew.sh) 安装：`brew install python@3.10`）
 - 可访问的 ELC Invoice Engine V2 服务
 
 ---
@@ -249,16 +249,108 @@ elc-invoice-engine-cli/
 
 ---
 
-## 常见问
+## 常见问题
 
-**Q: `elc: command not found`**  
-确认虚拟环境已激活（`source .venv/bin/activate`），或重新执行 `pip install -e .`。
+**Q: `elc: command not found`（pip install 后命令找不到）**
+
+用系统 pip 安装时脚本会放到用户目录下，但该目录可能不在 PATH 里。
+
+```bash
+# 找到 elc 的实际位置
+pip3 show elc-invoice-engine-cli | grep Location
+# 例如输出：Location: /Users/yourname/Library/Python/3.9/lib/python/site-packages
+# 则 elc 在：/Users/yourname/Library/Python/3.9/bin/elc
+
+# 将对应 bin 目录加入 PATH（以 Python 3.9 为例）
+echo 'export PATH="$HOME/Library/Python/3.9/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+elc --help
+```
+
+**Q: `ERROR: Ignored the following versions that require a different python version`**
+
+系统自带 Python 版本过低（如 macOS 默认的 3.9 以下）。通过 Homebrew 安装新版本：
+
+```bash
+brew install python@3.10
+# 然后用对应 pip 安装
+pip3.10 install elc-invoice-engine-cli
+```
+
+**Q: `ProxyError` / 连接超时**
+
+网络走了代理导致 SSL 握手超时，有两个解法：
+
+```bash
+# 方案一：临时绕过代理
+env -u https_proxy -u http_proxy -u ALL_PROXY pip3 install elc-invoice-engine-cli
+
+# 方案二：使用国内镜像源（注意：镜像同步有延迟，新版本发布后稍等几分钟再试）
+pip3 install elc-invoice-engine-cli -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+**Q: 安装时出现依赖冲突 warning（`dependency conflicts`）**
+
+如果提示 `openapi-python-client`、`spacy`、`streamlit` 等包冲突，这是已安装的其他工具与本包依赖版本不一致，属于 warning 不影响 `elc` 正常使用。推荐在虚拟环境中安装以隔离依赖：
+
+```bash
+python3 -m venv ~/.venvs/elc
+source ~/.venvs/elc/bin/activate
+pip install elc-invoice-engine-cli
+elc --help
+```
 
 **Q: token 过期 / 401 错误**  
 运行 `elc login` 重新登录，或检查 `.env.local` 中的 `SSO_SECRET` 是否正确。
 
 **Q: 如何切换不同环境（dev / staging / prod）**  
 修改 `.env.local` 中的 `BASE_URL`，或在登录时通过 `--url` 选项指定。
+
+---
+
+## Claude Code Skills
+
+本项目附带两个 [Claude Code](https://claude.ai/code) Skills，让 Claude 能直接驱动 `elc` 完成复杂操作。
+
+### 可用 Skills
+
+| Skill | 触发命令 | 说明 |
+|-------|----------|------|
+| `elc-context` | `/elc-context` | 初始化 ELC 环境上下文，其他 Skill 的前置依赖 |
+| `invoice-export` | `/invoice-export` | 引导 Claude 自动完成发票导出（采样 → 推断映射 → 导出 Excel） |
+
+### 安装方法
+
+从 GitHub 下载 skills 目录：
+
+```bash
+# 克隆仓库（或只下载 skills 目录）
+git clone https://github.com/invagent/elc-invoice-engine-cli.git
+```
+
+然后复制到 Claude Code 的 skills 目录：
+
+```bash
+# 全局安装（所有项目均可用，推荐）
+mkdir -p ~/.claude/skills
+cp -r elc-invoice-engine-cli/skills/elc-context     ~/.claude/skills/
+cp -r elc-invoice-engine-cli/skills/invoice-export  ~/.claude/skills/
+
+# 或项目级安装（仅当前项目可用）
+mkdir -p .claude/skills
+cp -r elc-invoice-engine-cli/skills/elc-context     .claude/skills/
+cp -r elc-invoice-engine-cli/skills/invoice-export  .claude/skills/
+```
+
+### 使用示例
+
+在 Claude Code 中：
+
+```
+/invoice-export 导出本月组织 BU-00008 的发票，模版用 ~/Downloads/template.xlsx
+```
+
+Claude 会自动执行：初始化映射表 → 推断字段对应关系 → 导出 Excel 并告知文件路径。
 
 ---
 
