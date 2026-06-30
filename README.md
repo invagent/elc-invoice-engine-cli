@@ -332,6 +332,15 @@ curl -sL https://raw.githubusercontent.com/invagent/elc-invoice-engine-cli/main/
 
 curl -sL https://raw.githubusercontent.com/invagent/elc-invoice-engine-cli/main/skills/invoice-export/SKILL.md \
      -o ~/.claude/skills/invoice-export/SKILL.md
+
+# 项目级安装（仅当前项目可用，在项目根目录下执行）
+mkdir -p .claude/skills/elc-context .claude/skills/invoice-export
+
+curl -sL https://raw.githubusercontent.com/invagent/elc-invoice-engine-cli/main/skills/elc-context/SKILL.md \
+     -o .claude/skills/elc-context/SKILL.md
+
+curl -sL https://raw.githubusercontent.com/invagent/elc-invoice-engine-cli/main/skills/invoice-export/SKILL.md \
+     -o .claude/skills/invoice-export/SKILL.md
 ```
 
 **方式二：git clone（适合同时需要源码的场景）**
