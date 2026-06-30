@@ -1,0 +1,19 @@
+# 敏感配置，绝不提交
+.env.local
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+dist/
+build/
+
+# Token 缓存（本地生成）
+~/.elc/
+
+# macOS
+.DS_Store
