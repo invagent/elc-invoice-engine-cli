@@ -321,17 +321,25 @@ elc --help
 
 ### 安装方法
 
-从 GitHub 下载 skills 目录：
+**方式一：curl 下载（无需克隆整个仓库，推荐）**
 
 ```bash
-# 克隆仓库（或只下载 skills 目录）
-git clone https://github.com/invagent/elc-invoice-engine-cli.git
+# 全局安装（所有项目均可用）
+mkdir -p ~/.claude/skills/elc-context ~/.claude/skills/invoice-export
+
+curl -sL https://raw.githubusercontent.com/invagent/elc-invoice-engine-cli/main/skills/elc-context/SKILL.md \
+     -o ~/.claude/skills/elc-context/SKILL.md
+
+curl -sL https://raw.githubusercontent.com/invagent/elc-invoice-engine-cli/main/skills/invoice-export/SKILL.md \
+     -o ~/.claude/skills/invoice-export/SKILL.md
 ```
 
-然后复制到 Claude Code 的 skills 目录：
+**方式二：git clone（适合同时需要源码的场景）**
 
 ```bash
-# 全局安装（所有项目均可用，推荐）
+git clone https://github.com/invagent/elc-invoice-engine-cli.git
+
+# 全局安装
 mkdir -p ~/.claude/skills
 cp -r elc-invoice-engine-cli/skills/elc-context     ~/.claude/skills/
 cp -r elc-invoice-engine-cli/skills/invoice-export  ~/.claude/skills/
