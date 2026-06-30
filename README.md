@@ -43,19 +43,29 @@ pip install -e .
 elc login
 ```
 
-按提示依次输入租户域名、应用 ID、密钥、手机号、组织编号。  
+按提示依次输入以下字段，已在 `.env.local` 中配置的字段可直接回车跳过：
+
+| 字段 | 说明 |
+|------|------|
+| 服务地址 (url) | 如 `http://localhost:12007/xm-demo`，对应 `BASE_URL` |
+| 租户域名 (domain) | 如 `kingdee-fpy` |
+| 应用 ID (appId) | SSO 应用 ID |
+| 应用密钥 (secret) | SSO 密钥（输入时不回显） |
+| 手机号 (mobile) | 登录手机号 |
+| 组织编号 (orgNum) | 如 `HXB-10151` |
+
 Token 保存到 `~/.elc/token.json`，有效期内无需重复登录。
 
 也可以通过选项直接传入，跳过交互：
 
 ```bash
 elc login \
+  --url     http://localhost:12007/xm-demo \
   --domain  kingdee-fpy \
   --app-id  your_app_id \
   --secret  your_secret \
   --mobile  138xxxx \
-  --org-num HXB-10151 \
-  --url     http://localhost:12007/xm-demo
+  --org-num HXB-10151
 ```
 
 ### 方式二：.env.local 文件（适合 CI / 脚本）
