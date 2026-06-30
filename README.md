@@ -47,7 +47,7 @@ elc login
 
 | 字段 | 说明 |
 |------|------|
-| 服务地址 (url) | 如 `http://localhost:12007/xm-demo`，对应 `BASE_URL` |
+| 服务地址 (url) | 如 `http://api-sit.piaozone.com/xm-demo`，对应 `BASE_URL` |
 | 租户域名 (domain) | 如 `kingdee-fpy` |
 | 应用 ID (appId) | SSO 应用 ID |
 | 应用密钥 (secret) | SSO 密钥（输入时不回显） |
@@ -60,7 +60,7 @@ Token 保存到 `~/.elc/token.json`，有效期内无需重复登录。
 
 ```bash
 elc login \
-  --url     http://localhost:12007/xm-demo \
+  --url     http://api-sit.piaozone.com/xm-demo \
   --domain  kingdee-fpy \
   --app-id  your_app_id \
   --secret  your_secret \
