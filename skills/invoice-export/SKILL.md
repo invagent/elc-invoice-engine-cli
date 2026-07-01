@@ -21,17 +21,27 @@ description: 导出发票数据到 Excel。当用户说"导出发票"、"export 
 
 ### 第一步：解析用户意图
 
-从用户输入中提取以下参数：
+从用户输入中提取以下参数，转化为 `elc export invoice` 的命令行参数：
+
+| 用户说 | 转化为参数 | 示例 |
+|--------|-----------|------|
+| "最近N天" / "过去N天" / "最近N周" | `--days <N*7>` | 最近2周 → `--days 14` |
+| "本月" | `--month <当前年月>` | `--month 2026-07` |
+| "上个月" / "上月" | `--month <上月年月>` | `--month 2026-06` |
+| "YYYY-MM" | `--month YYYY-MM` | `--month 2026-05` |
+| "从X到Y" / "X至Y" | `--from YYYY-MM-DD --to YYYY-MM-DD` | `--from 2026-06-01 --to 2026-06-30` |
+| 未指定 | 默认当月 | 不传日期参数 |
+
+其他参数：
 
 | 参数 | 提取方式 | 默认值 |
 |------|----------|--------|
-| `month` | "本月"→当前年月；"上个月"→上月；"2026-05"→直接用 | 当前年月 |
-| `company` | 直接识别如 "BU-00008" | 读 .env.local 的 X_COMPANY_ID |
-| `template` | 用户提到的文件路径 | 需要询问 |
-| `out` | 用户提到的输出目录 | 当前目录 `.` |
+| `company` | 直接识别如 "BU-00008" | 读 .env.local / ~/.elc/.env 的 X_COMPANY_ID |
+| `template` | 用户提到的文件路径 | 自动使用已缓存模版，无需传入 |
+| `out` | 用户提到的输出目录 | 默认 ~/Downloads，无需传入 |
 
-如果 `template` 未提供，询问用户：
-> 请提供 Excel 模版文件路径（如 ~/Downloads/invoice_export_template.xlsx）
+如果 `company` 未提供且环境变量未配置，询问用户：
+> 请提供公司 ID（如 BU-00008）
 
 ### 第二步：检查映射表是否已初始化
 
@@ -138,11 +148,13 @@ elc export save-mapping \
 
 ```bash
 elc export invoice \
-  --template {template} \
-  --month {month} \
-  --company {company} \
-  --out {out}
+  [--template {template}] \
+  [--days {days} | --month {month} | --from {from} --to {to}] \
+  [--company {company}] \
+  [--out {out}]
 ```
+
+template、out 已有默认值，通常不需要传入。日期参数按第一步解析结果选其一传入。
 
 ### 第五步：报告结果
 
@@ -156,6 +168,17 @@ elc export invoice \
 ## 使用示例
 
 **用户输入：**
+> 导出最近2周组织为 BU-00008 的发票数据
+
+**Claude 执行：**
+1. 解析：days=14，company=BU-00008，template/out 使用默认值
+2. 检查映射表 → 已初始化 → 直接执行导出
+3. 运行：`elc export invoice --days 14 --company BU-00008`
+4. 报告：✓ 已导出 N 张发票到 ~/Downloads/invoice_export_20260617_20260701.xlsx
+
+---
+
+**用户输入：**
 > 导出本月组织为 BU-00008 的发票数据，模版用 ~/Downloads/invoice_export_template.xlsx
 
 **Claude 执行：**
@@ -163,5 +186,5 @@ elc export invoice \
 2. 检查映射表 → 未初始化 → 运行 `elc export init` 采集样本
 3. 读取样本，推断映射 JSON
 4. 运行 `elc export save-mapping` 保存
-5. 运行 `elc export invoice` 导出
-6. 报告：✓ 已导出 N 张发票到 ./invoice_export_YYYYMM.xlsx
+5. 运行 `elc export invoice --month 2026-07 --company BU-00008`
+6. 报告：✓ 已导出 N 张发票到 ~/Downloads/invoice_export_20260701_20260701.xlsx
