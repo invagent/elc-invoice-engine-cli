@@ -4,7 +4,7 @@ from __future__ import annotations
 import calendar
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -16,7 +16,7 @@ from rich.table import Table
 
 from cli.config import BASE_URL, REQUEST_TIMEOUT
 from cli.export.excel_writer import apply_mapping, write_excel
-from cli.export.mapping_store import load_mapping, mapping_exists, save_mapping
+from cli.export.mapping_store import load_mapping, mapping_exists, save_mapping, MAPPINGS_DIR
 from cli.export.xml_parser import extract_fields, flatten_xml_fields
 from cli.session import get_client
 
@@ -39,13 +39,6 @@ def _read_template_cols(template_path: str) -> tuple[list[tuple], list[tuple]]:
     return _pairs(wb["表头信息"]), _pairs(wb["商品详情"])
 
 
-def _month_range(month_str: str) -> tuple[str, str]:
-    """'2026-06' → ('2026-06-01', '2026-06-30')"""
-    d = datetime.strptime(month_str, "%Y-%m")
-    last_day = calendar.monthrange(d.year, d.month)[1]
-    return f"{d.year:04d}-{d.month:02d}-01", f"{d.year:04d}-{d.month:02d}-{last_day:02d}"
-
-
 def _fetch_source_xml(invoice_id: str, token: str, company_id: str) -> bytes | None:
     """下载 KDUBL Source XML，返回原始字节。"""
     headers = {
@@ -65,11 +58,33 @@ def _fetch_source_xml(invoice_id: str, token: str, company_id: str) -> bytes | N
     return None
 
 
-def _collect_invoices(month_str: str, max_batches: int = 500) -> list[dict]:
-    """分页拉取本月 INVOICED_SUCCESS 的 invoice 对象列表。"""
-    client = get_client()
-    updated_from, updated_to = _month_range(month_str)
+# invoiceRequests 列表接口内嵌的 invoice 字段（不需要调详情接口即可获取）
+_INLINE_INVOICE_FIELDS = {
+    "invoiceId", "invoiceNo", "invoiceStatus", "issueStatus",
+    "totalAmount", "taxAmount", "taxExclusiveAmount",
+    "invoiceTypeCode", "invoiceCurrencyCode", "issueDate",
+    "customerName", "customerId", "supplierName", "supplierId",
+    "supplierCountryCode",
+}
 
+
+def _needs_detail_api(mapping: dict) -> bool:
+    """判断映射表是否需要调 /v2/invoices/{id} 详情接口。"""
+    for rule in {**mapping.get("header_mapping", {}), **mapping.get("line_mapping", {})}.values():
+        if rule.get("source") == "json":
+            path = rule.get("path", "").split(".")[0]
+            if path and path not in _INLINE_INVOICE_FIELDS:
+                return True
+    return False
+
+
+def _collect_invoices(
+    updated_from: str,
+    updated_to: str,
+    max_batches: int = 500,
+) -> list[dict]:
+    """分页拉取 INVOICED_SUCCESS 的 invoice 对象列表，内嵌部分字段直接从列表接口取。"""
+    client = get_client()
     all_invoices: list[dict] = []
     seen_invoice_ids: set = set()
     cursor = None
@@ -101,11 +116,10 @@ def _collect_invoices(month_str: str, max_batches: int = 500) -> list[dict]:
                     inv_id = inv["invoiceId"]
                     if inv_id not in seen_invoice_ids:
                         seen_invoice_ids.add(inv_id)
-                        all_invoices.append({
-                            "invoiceId":        inv_id,
-                            "sourceSystem":     ir.get("sourceSystem", ""),
-                            "invoiceRequestId": ir.get("invoiceRequestId", ""),
-                        })
+                        # 合并申请单级字段到发票对象
+                        merged = {**inv, "sourceSystem": ir.get("sourceSystem", ""),
+                                  "invoiceRequestId": ir.get("invoiceRequestId", "")}
+                        all_invoices.append(merged)
 
         if not data.get("hasMore"):
             break
@@ -116,15 +130,27 @@ def _collect_invoices(month_str: str, max_batches: int = 500) -> list[dict]:
         cursor = next_cursor
 
     console.print(f"  共查询 {batch} 批，找到 {len(all_invoices)} 张不重复发票")
-
     return all_invoices
+
+
+def _resolve_template() -> str | None:
+    """从缓存目录推断模版路径。"""
+    if MAPPINGS_DIR.exists():
+        cached = list(MAPPINGS_DIR.glob("*.json"))
+        if cached:
+            try:
+                m = json.loads(cached[0].read_text())
+                return m.get("template_path", "")
+            except Exception:
+                pass
+    return None
 
 
 # ── 命令：init（采集样本数据，输出给 Claude 推断）────────────────────────────
 
 @app.command("init")
 def export_init(
-    template: str = typer.Option(..., "--template", "-t", help="Excel 模版路径"),
+    template: Optional[str] = typer.Option(None, "--template", "-t", help="Excel 模版路径，默认使用已缓存的模版"),
     company: Optional[str] = typer.Option(None, "--company", "-c", help="公司 ID"),
     output: Optional[str] = typer.Option(None, "--output", "-o",
                                           help="将样本数据输出到文件（默认打印到终端）"),
@@ -136,6 +162,13 @@ def export_init(
       2. Claude 推断映射后生成 JSON
       3. 运行 elc export save-mapping 保存映射
     """
+    if template is None:
+        template = _resolve_template()
+        if not template:
+            console.print("[red]未找到已缓存的模版，请通过 --template 指定模版路径[/red]")
+            raise typer.Exit(1)
+        console.print(f"[dim]使用已缓存模版：{template}[/dim]")
+
     template = str(Path(template).expanduser().resolve())
     if not Path(template).exists():
         console.print(f"[red]模版文件不存在：{template}[/red]")
@@ -161,6 +194,9 @@ def export_init(
         raise typer.Exit(1)
 
     inv_id = sample_ir["invoices"][0]["invoiceId"]
+
+    # 同时采集内嵌数据和详情数据，供 AI 推断时参考
+    inline_invoice = sample_ir["invoices"][0]
     _, inv_body = client.get(f"/v2/invoices/{inv_id}")
     invoice_json = inv_body.get("data") or inv_body
 
@@ -170,13 +206,15 @@ def export_init(
     xml_bytes = _fetch_source_xml(inv_id, token, company)
     xml_fields_list = flatten_xml_fields(xml_bytes) if xml_bytes else []
 
-    # 构建输出数据
+    # 构建输出数据，注明内嵌字段范围供 AI 判断是否需要详情接口
     result = {
         "template_path": template,
         "header_columns": [{"en": en, "zh": zh} for en, zh in header_cols],
         "line_columns":   [{"en": en, "zh": zh} for en, zh in line_cols],
+        "inline_invoice_fields": sorted(_INLINE_INVOICE_FIELDS),
+        "sample_inline_invoice": inline_invoice,
         "sample_invoice_json": invoice_json,
-        "sample_xml_fields":   xml_fields_list[:80],  # 限制长度
+        "sample_xml_fields":   xml_fields_list[:80],
     }
 
     out_str = json.dumps(result, ensure_ascii=False, indent=2)
@@ -226,9 +264,16 @@ def export_save_mapping(
         console.print("[red]映射 JSON 格式错误，需包含 header_mapping 和 line_mapping[/red]")
         raise typer.Exit(1)
 
+    # 分析并记录是否需要详情接口和 XML
+    needs_detail = _needs_detail_api(mapping)
+    needs_xml = any(
+        r.get("source") == "xml"
+        for r in {**mapping.get("header_mapping", {}), **mapping.get("line_mapping", {})}.values()
+    )
+    mapping["_meta"] = {"needs_detail": needs_detail, "needs_xml": needs_xml}
+
     save_mapping(template, mapping)
 
-    # 展示摘要
     hm = mapping["header_mapping"]
     lm = mapping["line_mapping"]
     json_count = sum(1 for r in {**hm, **lm}.values() if r.get("source") == "json")
@@ -236,6 +281,8 @@ def export_save_mapping(
     none_count = sum(1 for r in {**hm, **lm}.values() if r.get("source") == "none")
 
     console.print(f"[green]✓ 映射表已保存[/green]（JSON字段：{json_count}，XML字段：{xml_count}，无映射：{none_count}）")
+    console.print(f"  需要详情接口：{'是' if needs_detail else '否（内嵌字段已满足）'}")
+    console.print(f"  需要 XML：{'是' if needs_xml else '否'}")
     console.print(f"  缓存位置：~/.elc/mappings/")
 
 
@@ -243,17 +290,34 @@ def export_save_mapping(
 
 @app.command("invoice")
 def export_invoice(
-    template: str = typer.Option(..., "--template", "-t", help="Excel 模版路径"),
-    month: Optional[str] = typer.Option(None, "--month", "-m",
-                                         help="月份，如 2026-06，默认当月"),
+    template: Optional[str] = typer.Option(None, "--template", "-t", help="Excel 模版路径，默认使用已缓存的模版"),
+    updated_from: Optional[str] = typer.Option(None, "--from", help="起始日期，如 2026-06-01"),
+    updated_to: Optional[str] = typer.Option(None, "--to", help="截止日期，如 2026-06-30"),
+    days: Optional[int] = typer.Option(None, "--days", "-d", help="最近 N 天，与 --from/--to 互斥"),
+    month: Optional[str] = typer.Option(None, "--month", "-m", help="月份，如 2026-06（兼容旧参数）"),
     company: Optional[str] = typer.Option(None, "--company", "-c", help="公司 ID"),
-    out: str = typer.Option(".", "--out", "-o", help="输出目录"),
-    max_batches: int = typer.Option(500, "--max-batches", help="最大查询批次（每批20条），防止数据量过大"),
+    out: Optional[str] = typer.Option(None, "--out", "-o", help="输出目录，默认 ~/Downloads"),
+    max_batches: int = typer.Option(500, "--max-batches", help="最大查询批次（每批20条）"),
 ):
     """导出发票数据到 Excel。
 
-    需先运行 elc export init 并通过 elc export save-mapping 保存映射。
+    日期范围支持三种方式（优先级：--from/--to > --days > --month > 当月）：
+      --from 2026-06-01 --to 2026-06-30
+      --days 15              （最近15天）
+      --month 2026-06        （整月）
     """
+    # 默认输出目录
+    if out is None:
+        out = str(Path.home() / "Downloads")
+
+    # 推断模版路径
+    if template is None:
+        template = _resolve_template()
+        if not template:
+            console.print("[red]未找到已缓存的模版，请通过 --template 指定模版路径[/red]")
+            raise typer.Exit(1)
+        console.print(f"[dim]使用已缓存模版：{template}[/dim]")
+
     template = str(Path(template).expanduser().resolve())
     if not Path(template).exists():
         console.print(f"[red]模版文件不存在：{template}[/red]")
@@ -262,29 +326,47 @@ def export_invoice(
     if not mapping_exists(template):
         console.print("[red]映射表未初始化，请先运行：[/red]")
         console.print(f"  elc export init --template {template}")
-        console.print("  （然后将输出给 Claude，让其生成映射，再运行 elc export save-mapping）")
         raise typer.Exit(1)
+
+    # 解析日期范围
+    today = date.today()
+    if updated_from and updated_to:
+        pass  # 直接使用
+    elif days:
+        updated_from = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        updated_to   = today.strftime("%Y-%m-%d")
+    elif month:
+        d = datetime.strptime(month, "%Y-%m")
+        last_day = calendar.monthrange(d.year, d.month)[1]
+        updated_from = f"{d.year:04d}-{d.month:02d}-01"
+        updated_to   = f"{d.year:04d}-{d.month:02d}-{last_day:02d}"
+    else:
+        updated_from = today.strftime("%Y-%m-01")
+        updated_to   = today.strftime("%Y-%m-%d")
 
     mapping = load_mapping(template)
     company = company or os.environ.get("X_COMPANY_ID", "")
-    month   = month or date.today().strftime("%Y-%m")
 
-    console.print(f"[cyan]导出月份：{month}，公司：{company}[/cyan]")
+    # 从映射表元信息决定调用路径
+    meta = mapping.get("_meta", {})
+    needs_detail = meta.get("needs_detail", True)   # 保守默认：调详情
+    needs_xml    = meta.get("needs_xml", False)
 
-    # ① 收集 invoiceId 列表
-    inv_metas = _collect_invoices(month, max_batches=max_batches)
+    console.print(f"[cyan]日期范围：{updated_from} ~ {updated_to}，公司：{company}[/cyan]")
+    console.print(f"[dim]调用路径：{'详情接口' if needs_detail else '内嵌数据（跳过详情接口）'}，XML：{'需要' if needs_xml else '不需要'}[/dim]")
+
+    # ① 收集发票列表（内嵌数据）
+    inv_metas = _collect_invoices(updated_from, updated_to, max_batches=max_batches)
     if not inv_metas:
         console.print("[yellow]未找到符合条件的发票，退出。[/yellow]")
         raise typer.Exit(0)
     console.print(f"共找到 [bold]{len(inv_metas)}[/bold] 张发票")
 
-    # ② 判断是否需要下载 XML
     xml_xpath_map = {
         col: rule["xpath"]
         for col, rule in {**mapping.get("header_mapping", {}), **mapping.get("line_mapping", {})}.items()
         if rule.get("source") == "xml" and rule.get("xpath")
-    }
-    need_xml = bool(xml_xpath_map)
+    } if needs_xml else {}
 
     client = get_client()
     token = client.headers.get("Authorization", "").removeprefix("Bearer ")
@@ -300,18 +382,21 @@ def export_invoice(
     ) as progress:
         task = progress.add_task("处理发票...", total=len(inv_metas))
 
-        for meta in inv_metas:
-            inv_id = meta["invoiceId"]
+        for inline_inv in inv_metas:
+            inv_id = inline_inv["invoiceId"]
             progress.update(task, description=f"处理 {inv_id[:16]}...")
 
-            # 拉发票详情 JSON
-            _, inv_body = client.get(f"/v2/invoices/{inv_id}")
-            invoice_json = inv_body.get("data") or inv_body
-            invoice_json["sourceSystem"] = meta.get("sourceSystem", "")
+            # 按需调详情接口
+            if needs_detail:
+                _, inv_body = client.get(f"/v2/invoices/{inv_id}")
+                invoice_json = inv_body.get("data") or inv_body
+                invoice_json["sourceSystem"] = inline_inv.get("sourceSystem", "")
+            else:
+                invoice_json = inline_inv
 
-            # 下载 XML（按需）
+            # 按需下载 XML
             xml_fields: dict = {}
-            if need_xml:
+            if needs_xml:
                 xml_bytes = _fetch_source_xml(inv_id, token, company)
                 if xml_bytes:
                     xml_fields = extract_fields(xml_bytes, xml_xpath_map)
@@ -321,9 +406,10 @@ def export_invoice(
             progress.advance(task)
 
     # ③ 写 Excel
-    ym = month.replace("-", "")
-    out_path = str(Path(out).expanduser() / f"invoice_export_{ym}.xlsx")
+    date_suffix = f"{updated_from}_{updated_to}".replace("-", "")
+    out_path = str(Path(out).expanduser() / f"invoice_export_{date_suffix}.xlsx")
     count = write_excel(invoices_out, template, out_path, mapping)
 
     console.print(f"\n[green]✓ 导出完成：{out_path}[/green]")
     console.print(f"  共导出 [bold]{count}[/bold] 张发票")
+
