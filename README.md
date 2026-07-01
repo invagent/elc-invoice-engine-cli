@@ -77,13 +77,33 @@ cp .env.example .env.local
 
 | 字段 | 说明 |
 |------|------|
-| `BASE_URL` | 服务地址，如 `http://localhost:12007/xm-demo` |
+| `BASE_URL` | 服务地址，如 `http://api-sit.piaozone.com/xm-demo` |
 | `SSO_APP_ID` | 应用 ID |
 | `SSO_SECRET` | 应用密钥 |
 | `SSO_DOMAIN` | 租户域名 |
 | `SSO_MOBILE` | 登录手机号 |
 | `SSO_ORG_NUM` | 组织编号 |
 | `X_COMPANY_ID` | 租户公司 ID（`X-Company-Id` 请求头） |
+
+### 方式三：全局配置文件（推荐，Skills / 非项目目录下均可用）
+
+将配置写到 `~/.elc/.env`，无论在哪个目录调用 `elc` 都能自动加载：
+
+```bash
+mkdir -p ~/.elc
+cat > ~/.elc/.env <<'EOF'
+BASE_URL=http://api-sit.piaozone.com/xm-demo
+SSO_APP_ID=sso
+SSO_SECRET=your_secret
+SSO_DOMAIN=kingdee-fpy
+SSO_MOBILE=your_mobile
+SSO_ORG_NUM=your_org_num
+X_COMPANY_ID=BU-00008
+EOF
+chmod 600 ~/.elc/.env
+```
+
+配置加载优先级（高覆盖低）：工程目录 `.env.local` > 工程目录 `.env` > `~/.elc/.env`
 
 ### 登录状态管理
 

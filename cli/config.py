@@ -2,8 +2,11 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# 从工程根目录的 .env.local → .env 依次加载
 _root = Path(__file__).parent.parent
+
+# 加载顺序：~/.elc/.env（全局）→ 工程目录 .env.local → .env
+# 后加载的优先级更高，工程级配置可覆盖全局配置
+load_dotenv(Path.home() / ".elc" / ".env")
 load_dotenv(_root / ".env.local")
 load_dotenv(_root / ".env")
 
