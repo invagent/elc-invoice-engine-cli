@@ -18,6 +18,16 @@ pip install elc-invoice-engine-cli
 elc --help
 ```
 
+升级到最新版本：
+
+```bash
+# 直接从 PyPI 升级（如遇代理问题，加 env -u https_proxy -u http_proxy -u ALL_PROXY 前缀）
+pip3 install --upgrade elc-invoice-engine-cli
+
+# 或使用国内镜像源
+pip3 install --upgrade elc-invoice-engine-cli -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
 ### 方式二：从源码安装（开发用）
 
 ```bash
