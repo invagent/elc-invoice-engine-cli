@@ -30,13 +30,16 @@ elc describe -o json
 - `known_issues`：已知问题和坑
 - `export_workflow`：导出发票的标准流程
 
-### 第二步：检查登录状态
+### 第二步：检查并自动处理登录状态
 
-如果 `env.logged_in` 为 `false`：
+如果 `env.logged_in` 为 `false`，自动尝试登录（无需询问用户）：
+
 ```bash
-elc login status
+elc login
 ```
-提示用户先运行 `elc login` 完成认证。
+
+登录成功后继续执行。如果登录失败（如密钥错误），提示用户：
+> 自动登录失败，请运行 `elc login` 手动完成认证，或检查 `~/.elc/.env` 中的配置是否正确。
 
 ### 第三步：将上下文注入后续操作
 
@@ -44,7 +47,7 @@ elc login status
 
 **接口行为（必读）：**
 - 分页用 cursor，不是 pageNum；每页固定 20 条
-- 时间过滤参数是 `updatedFrom` / `updatedTo`，格式 `YYYY-MM-DD`
+- 时间过滤参数是 `updatedFrom` / `updatedTo`，格式 `YYYY-MM-DD`，过滤的是申请单 updatedTime，不是发票开票日期
 - `GET /v2/invoice-requests/{id}` 单条接口不稳定，改用 list + sourceId 过滤
 - `X-Company-ID`（大写 ID），不是 `X-Company-Id`
 
