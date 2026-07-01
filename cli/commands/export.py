@@ -293,18 +293,14 @@ def export_invoice(
     template: Optional[str] = typer.Option(None, "--template", "-t", help="Excel 模版路径，默认使用已缓存的模版"),
     updated_from: Optional[str] = typer.Option(None, "--from", help="起始日期，如 2026-06-01"),
     updated_to: Optional[str] = typer.Option(None, "--to", help="截止日期，如 2026-06-30"),
-    days: Optional[int] = typer.Option(None, "--days", "-d", help="最近 N 天，与 --from/--to 互斥"),
-    month: Optional[str] = typer.Option(None, "--month", "-m", help="月份，如 2026-06（兼容旧参数）"),
     company: Optional[str] = typer.Option(None, "--company", "-c", help="公司 ID"),
     out: Optional[str] = typer.Option(None, "--out", "-o", help="输出目录，默认 ~/Downloads"),
     max_batches: int = typer.Option(500, "--max-batches", help="最大查询批次（每批20条）"),
 ):
     """导出发票数据到 Excel。
 
-    日期范围支持三种方式（优先级：--from/--to > --days > --month > 当月）：
-      --from 2026-06-01 --to 2026-06-30
-      --days 15              （最近15天）
-      --month 2026-06        （整月）
+    需先运行 elc export init 并通过 elc export save-mapping 保存映射。
+    日期范围：--from 2026-06-01 --to 2026-06-30，不传默认当月。
     """
     # 默认输出目录
     if out is None:
@@ -328,21 +324,12 @@ def export_invoice(
         console.print(f"  elc export init --template {template}")
         raise typer.Exit(1)
 
-    # 解析日期范围
+    # 默认当月
     today = date.today()
-    if updated_from and updated_to:
-        pass  # 直接使用
-    elif days:
-        updated_from = (today - timedelta(days=days)).strftime("%Y-%m-%d")
-        updated_to   = today.strftime("%Y-%m-%d")
-    elif month:
-        d = datetime.strptime(month, "%Y-%m")
-        last_day = calendar.monthrange(d.year, d.month)[1]
-        updated_from = f"{d.year:04d}-{d.month:02d}-01"
-        updated_to   = f"{d.year:04d}-{d.month:02d}-{last_day:02d}"
-    else:
+    if not updated_from:
         updated_from = today.strftime("%Y-%m-01")
-        updated_to   = today.strftime("%Y-%m-%d")
+    if not updated_to:
+        updated_to = today.strftime("%Y-%m-%d")
 
     mapping = load_mapping(template)
     company = company or os.environ.get("X_COMPANY_ID", "")
