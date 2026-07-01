@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import typer
-from cli.commands import describe, exchange, export, invoice, invoice_doc, login, party, product, tax
+from cli.commands import describe, exchange, export, import_, invoice, invoice_doc, login, party, product, tax
 
 app = typer.Typer(
     name="elc",
@@ -24,6 +24,7 @@ app.add_typer(product.app,      name="product")
 app.add_typer(tax.app,          name="tax")
 app.add_typer(exchange.app,     name="exchange")
 app.add_typer(export.app,       name="export")
+app.add_typer(import_.app,      name="import")
 
 if __name__ == "__main__":
     app()
